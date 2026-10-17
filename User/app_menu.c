@@ -85,7 +85,7 @@ static const menu_item_struct item_main[] =
 /* ---- L2: LED ---- */
 static const menu_item_struct item_led[] =
 {
-    { "Blink Period", MENU_ITEM_VALUE,  0, &g_param.led_blink_ms,   50, 5000,  50, "ms", NULL },
+    { "Blink",        MENU_ITEM_VALUE,  0, &g_param.led_blink_ms,   50, 5000,  50, "ms", NULL },
     { "Breath Step",  MENU_ITEM_VALUE,  0, &g_param.breath_step,     1,  500,   1, "",   NULL },
     { "LED Chase",    MENU_ITEM_ACTION, 0, NULL, 0, 0, 0, "", act_led_chase },
     { "< Back",       MENU_ITEM_BACK,   0, NULL, 0, 0, 0, "", NULL },
@@ -176,7 +176,7 @@ static int32  menu_edit_value = 0;
 static void menu_draw_list(void)
 {
     const menu_node_struct *node = &menu_nodes[menu_node];
-    char line[20];
+    char line[24];
     uint8 i;
 
     sprintf(line, "%d/3 %s", (int)menu_level, node->title);
@@ -189,7 +189,7 @@ static void menu_draw_list(void)
         switch(it->type)
         {
             case MENU_ITEM_VALUE:
-                sprintf(line, "%-11s%4d%s", it->name, (int)(*(it->value)), it->unit);
+                sprintf(line, "%-9s%4d%s", it->name, (int)(*(it->value)), it->unit);
                 break;
 
             case MENU_ITEM_SUBMENU:
@@ -205,7 +205,7 @@ static void menu_draw_list(void)
     }
 
     app_ui_list_clear_rows(node->count);
-    app_ui_list_hint("U/D move  M ok  K2 back");
+    app_ui_list_hint(APP_UI_HINT_LIST);
 
     /* KeyDebug 节点: 直接叠加实时编码 */
     if(NODE_KEYDBG == menu_node)
@@ -241,7 +241,7 @@ static void menu_draw_list(void)
  *-----------------------------------------------------------------------------------------------------------------*/
 static void menu_draw_edit(void)
 {
-    char line[20];
+    char line[24];
 
     app_ui_list_begin("3/3 EDIT");
 
@@ -258,7 +258,7 @@ static void menu_draw_edit(void)
     sprintf(line, "step %d", (int)menu_edit_item->step);
     app_ui_list_row(6, line, 0);
 
-    app_ui_list_hint("L/R change M ok K2 esc");
+    app_ui_list_hint(APP_UI_HINT_EDIT);
 }
 
 static void menu_enter_edit(const menu_item_struct *item)

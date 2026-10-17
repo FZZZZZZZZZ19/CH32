@@ -10,6 +10,10 @@
 #define APP_UI_ROW_MAX          (8)
 #define APP_UI_HINT_Y           (144)
 
+/* ---- 底部提示语：竖屏 8x16 字体一行只能放 16 个字符，超过会被裁掉 ---- */
+#define APP_UI_HINT_LIST        "U/D move M ok K2"      /* 列表页(1/2 级) 16 字符 */
+#define APP_UI_HINT_EDIT        "L/R chg M ok K2"       /* 编辑页(3 级)  15 字符 */
+
 void  app_ui_init(void);
 void  app_ui_task(void);
 
