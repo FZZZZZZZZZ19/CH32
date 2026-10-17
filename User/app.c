@@ -1,17 +1,17 @@
 /********************************************************************************
 * File Name          : app.c
-* Description        : 应用层总调度 —— 第 9 步版（+ 按键读取 + 屏幕 UI 交互）
+* Description        : 应用层总调度 —— 第 10 步版（+ 三级菜单 + 参数历史记录）
 *
 * 【这一步在干什么】
-*   板上的 8 个按键没有直接接到 8 个 IO，而是先过一个 74HC148 优先编码器，
-*   变成 3 根线（PD8 / PB12 / PB14）送进单片机。所以"读按键"要先解码、再消抖。
-*   app_key.c 负责把 3 根线翻译成"哪个键、单击还是长按"；
-*   app_ui.c  负责把结果画到屏幕上，并且只重画变化的行（不闪屏）。
+*   1) 菜单：把前面 9 步的功能全部挂成一棵树，用五向开关 + 两个按键在里面走。
+*      第 1 级是主菜单，第 2 级是功能页，第 3 级是能改数值的参数编辑页
+*      —— "三级菜单"这个任务要求的就是这三层，而不是三个页面。
+*   2) 记录：每次保存参数时，往 Flash 的另一个扇区追加一条历史（扇区 62），
+*      于是"改过什么、什么时候改的"能查 —— 这是任务 10 里的"记录参数"。
 *
-* 【为什么按键扫描放在主循环、不放中断里】
-*   真按键按下时触点会抖动几毫秒 —— 必须"隔一小会儿再看一眼"，这是时间上的事，
-*   中断里不适合做（会拉长中断时间）。而且 74HC148 是共用的 3 根线，
-*   中断只适合"提示有变化"，判断和消抖仍然要放到 10ms 的任务里。
+* 【为什么菜单和记录要单独两个文件】
+*   菜单是"界面 + 按键"，记录是"数据 + Flash"，两者的生命周期完全不一样：
+*   界面以后可能整个换掉（比如换成图形界面），记录格式几乎不会变。
 ********************************************************************************/
 #include "app_config.h"
 #include "app.h"
@@ -21,8 +21,10 @@
 #include "app_display.h"
 #include "app_param.h"
 #include "app_console.h"
-#include "app_key.h"                /* 第 9 步新增：74HC148 解码 + 消抖 */
-#include "app_ui.h"                 /* 第 9 步新增：屏幕 UI 交互       */
+#include "app_key.h"
+#include "app_ui.h"
+#include "app_menu.h"               /* 第 10 步新增：三级菜单状态机 */
+#include "app_log.h"                /* 第 10 步新增：参数历史记录   */
 
 /* ================================ 呼吸灯 ================================ */
 static int32 breath_duty = 0;
@@ -63,13 +65,12 @@ static uint32 t_count = 0;
 static uint32 t_beep  = 0;
 static uint32 t_print = 0;
 static uint32 t_run   = 0;
-static uint32 t_key   = 0;          /* 按键扫描周期（第 9 步新增）            */
+static uint32 t_key   = 0;
 
 /* ============================== 上电初始化 ==============================
- * 【为什么按键初始化放在屏幕之后】
- *   没有严格的先后依赖，但屏幕初始化最慢（约 250ms），
- *   把按键配在前面会让"第一次按键"在屏幕还没亮的这段时间里没有反应；
- *   顺序统一成"快的在前、慢的在最后"，出问题时也容易定位。
+ * 【为什么 app_log_init() 必须排在 app_menu_init() 前面】
+ *   菜单首页要显示"已保存记录：N 条"，N 来自 app_log_init() 读出来的记录数。
+ *   顺序反了首页就会显示 0 条，直到退出再进才刷新 —— 这种 bug 很难查。
  * --------------------------------------------------------------------*/
 void app_init(void)
 {
@@ -82,51 +83,35 @@ void app_init(void)
     app_breath_set_step((int32)g_param.breath_step);
 
     app_tick_init();
+    /* app_display_init() 不在这里调用了：从第 10 步起整块屏幕归菜单（app_menu + app_ui），
+       数据页和菜单的行坐标重叠，两边都画会互相覆盖。app_display.c 仍然参与编译，
+       想在菜单里单独看数据页的话，在菜单表里加一项调 app_display_init() 即可。 */
 
-    /* 顺序有讲究：app_ui_init() 里会 tft180_clear() 清屏，
-       所以它必须排在 app_display_init()（画静态页）之前，否则刚画好的页会被清掉。 */
-    app_key_init();                     /* ★ 第 9 步：PD8/PB12/PB14 配成上拉输入 */
-    app_ui_init();                      /* ★ 第 9 步：屏幕初始化（清屏 + 字体） */
-    app_display_init();                 /* 画静态页（Tick/Cnt/Duty/Time/Key）   */
+    app_key_init();
+    app_log_init();                     /* ★ 第 10 步：先读历史记录（扇区 62）  */
+    app_menu_init();                    /* ★ 第 10 步：再进菜单，首页就能显示条数 */
 
+    app_ui_init();
     app_console_init();
     app_param_show();
 
-    printf("[APP] step9: + key(74hc148) + ui\r\n");
+    printf("[APP] step10: + 3-level menu + param log\r\n");
 }
 
-/* ================================ 主循环 ================================ */
+/* ================================ 主循环 ================================
+ * 【为什么 app_menu_task() 放在最后】
+ *   它要消费按键事件。事件是"取一次就清掉"的，所以必须让前面所有可能
+ *   也想看按键的东西（这里没有）先处理完，最后才由菜单统一消费。
+ * --------------------------------------------------------------------*/
 void app_task(void)
 {
     app_led_task();
     app_buzzer_task();
     app_breath_task();
 
-    /* --- 10ms：按键扫描（消抖、判长按都在里面）--- */
     if(app_tick_reached(&t_key, 10))
     {
-        app_key_task();
-        /* 屏幕 "Key :" 那一行跟着当前按住的键实时变（app_display 本来就留了这个接口） */
-        app_display_bind_key(app_key_name(app_key_get_pressed()));
-    }
-
-    /* --- 按键事件：串口打印 + KEY1 响一声（证明消抖/长按状态机真的在跑）--- */
-    {
-        app_key_enum       ev_key;
-        app_key_event_enum ev = app_key_get_event(&ev_key);
-
-        if(APP_KEY_EVENT_NONE != ev)
-        {
-            printf("[KEY] %s %s (code=%d)\r\n", app_key_name(ev_key),
-                   (APP_KEY_EVENT_PRESS  == ev) ? "PRESS"  :
-                   (APP_KEY_EVENT_LONG   == ev) ? "LONG"   : "REPEAT",
-                   app_key_get_raw_code());
-
-            if(APP_KEY_KEY1 == ev_key)                  /* SW14：按一下嗡一声 */
-            {
-                app_buzzer_start(g_param.buzzer_freq, 50);
-            }
-        }
+        app_key_task();                 /* 扫描 + 消抖 + 生成事件        */
     }
 
     if(app_tick_reached(&t_count, 100))
@@ -154,8 +139,8 @@ void app_task(void)
                (unsigned int)(app_tick_get() / 1000), (unsigned int)app_counter_get());
     }
 
-    /* --- 界面与命令行（都是"有活就干、没活立刻返回"）--- */
-    app_ui_task();                      /* ★ 第 9 步：刷新页面 / 处理临时消息 */
-    app_display_task();
-    app_console_task();
+    app_ui_task();                      /* 临时消息倒计时                */
+    app_console_task();                 /* 串口控制台（不阻塞）          */
+    app_menu_task();                    /* ★ 第 10 步：消费按键 + 重画菜单 */
+    /* app_display_task() 同样不调：数字会写到菜单的行上，把字盖掉。 */
 }
