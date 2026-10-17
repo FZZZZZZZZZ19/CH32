@@ -46,9 +46,17 @@ static void app_ui_show_clip(uint16 x, uint16 y, const char *text, uint8 max_col
     {
         max_cols = APP_UI_COLS;
     }
-    for(i = 0; i < max_cols; i ++)
+    /* 先按字符串真实长度拷贝, 遇到结束符就停, 剩下的列全部补空格。
+       不能写成 line[i] = text[i] ? text[i] : ' ';
+       —— text 常常是字符串常量(例如 "KEY DEBUG"), 那样会一直往后读到常量区里,
+          把紧跟在后面的别的文字也画到屏幕上, 现象就是项名后面出现 "izer"/"bug" 这类残影。 */
+    for(i = 0; (i < max_cols) && (text[i]); i ++)
     {
-        line[i] = (text[i]) ? text[i] : ' ';            /* 到字符串结尾就补空格 */
+        line[i] = text[i];
+    }
+    for(; i < max_cols; i ++)
+    {
+        line[i] = ' ';
     }
     line[max_cols] = '\0';
 
