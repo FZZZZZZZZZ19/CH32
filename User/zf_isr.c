@@ -1,4 +1,5 @@
-/* NOTE (SeekFree integration)
+/* ======================== 【为什么中断代码都在这个文件里】 ========================  * 逐飞库把每一个 xxx_IRQHandler 都写成空壳放在这里，用户代码写进函数体。  * 集中放置的好处：所有中断优先级、有没有互相冲突，一眼看全。  * 本工程只用到 3 个：TIM6（1ms 节拍，调 app_tick_irq()）、  * USART3（串口接收，库已接好 debug_interrupr_handler()）、  * EXTI9_5 / EXTI15_10（可选：按键中断版，只在中断里置标志）。  * ================================================================================= */ 
+ /* NOTE (SeekFree integration)
  * ------------------------------------------------------------------
  * Copied from the SeekFree library (V3.7.2):
  *   project/user/src/isr.c
@@ -43,6 +44,7 @@
 ********************************************************************************************************************/
 
 #include "zf_common_headfile.h"
+#include "app_tick.h"
 
 void USART1_IRQHandler(void) __attribute__((interrupt()));
 void USART2_IRQHandler(void) __attribute__((interrupt()));
@@ -343,6 +345,7 @@ void TIM6_IRQHandler(void)
     if(TIM_GetITStatus(TIM6, TIM_IT_Update) != RESET)
     {
        TIM_ClearITPendingBit(TIM6, TIM_IT_Update );
+       app_tick_irq();                                  /* 只加一个计数器 */
 
     }
 }
