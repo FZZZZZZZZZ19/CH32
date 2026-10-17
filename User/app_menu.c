@@ -11,6 +11,18 @@
 #include "app.h"                    /* 第 8 次提交：蜂鸣器扫频 app_buzzer_sweep_toggle() */
 
 /*-------------------------------------------------------------------------------------------------------------------
+ * 底部提示栏文案（一块屏一行 16 个字符）
+ * APP_MENU_SINGLE_KEY = 1 时用「单键」说法，否则用正常的多键说法
+ *-----------------------------------------------------------------------------------------------------------------*/
+#if (APP_MENU_SINGLE_KEY)
+    #define MENU_HINT_LIST      "tap=next hold=ok"      /* 16 字符, 正好一行 */
+    #define MENU_HINT_EDIT      "tap=+1  hold=save"     /* 16 字符 */
+#else
+    #define MENU_HINT_LIST      APP_UI_HINT_LIST
+    #define MENU_HINT_EDIT      APP_UI_HINT_EDIT
+#endif
+
+/*-------------------------------------------------------------------------------------------------------------------
  * 菜单项类型
  *-----------------------------------------------------------------------------------------------------------------*/
 typedef enum
@@ -210,7 +222,7 @@ static void menu_draw_list(void)
     }
 
     app_ui_list_clear_rows(node->count);
-    app_ui_list_hint(APP_UI_HINT_LIST);
+    app_ui_list_hint(MENU_HINT_LIST);
 
     /* KeyDebug 节点: 直接叠加实时编码 */
     if(NODE_KEYDBG == menu_node)
@@ -263,7 +275,7 @@ static void menu_draw_edit(void)
     sprintf(line, "step %d", (int)menu_edit_item->step);
     app_ui_list_row(6, line, 0);
 
-    app_ui_list_hint(APP_UI_HINT_EDIT);
+    app_ui_list_hint(MENU_HINT_EDIT);
 }
 
 static void menu_enter_edit(const menu_item_struct *item)
@@ -321,6 +333,27 @@ void app_menu_task(void)
         }
         return;
     }
+
+#if (APP_MENU_SINGLE_KEY)
+    /* ---- 单键兜底：把「任意一个键」翻译成菜单能懂的动作 ----
+     * 短按 -> 列表页: 下一项 ; 编辑页: 数值 +1 步
+     * 长按 -> 确定（编辑页 = 确定并返回上一级）
+     * 连发 -> 不处理, 免得长按松手后菜单自己继续跑
+     */
+    if(APP_KEY_EVENT_LONG == ev)
+    {
+        key = APP_KEY_MID;
+        ev  = APP_KEY_EVENT_PRESS;
+    }
+    else if(APP_KEY_EVENT_PRESS == ev)
+    {
+        key = (3 == menu_level) ? APP_KEY_RIGHT : APP_KEY_DOWN;
+    }
+    else /* APP_KEY_EVENT_REPEAT */
+    {
+        key = APP_KEY_NONE;                 /* 落到 default 分支 = 什么都不做 */
+    }
+#endif
 
     /* ============================ 第三级: 参数编辑 ============================ */
     if(3 == menu_level)
