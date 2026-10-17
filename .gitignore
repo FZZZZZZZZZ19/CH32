@@ -24,3 +24,5 @@
 *.map
 *.lst
 *.siz
+
+/.mrs/*.mrs-workspace
