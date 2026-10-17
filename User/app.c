@@ -1,16 +1,17 @@
 /********************************************************************************
 * File Name          : app.c
-* Description        : 应用层总调度 —— 第 8 步版（+ Flash 参数保存 + 串口控制台）
+* Description        : 应用层总调度 —— 第 9 步版（+ 按键读取 + 屏幕 UI 交互）
 *
 * 【这一步在干什么】
-*   1) 参数不再写死在代码里，而是放在 g_param 结构体里，上电从 Flash 读、改完写回，
-*      断电重启后还在 —— 这是任务 8 的全部内容；
-*   2) 加一个串口控制台：不重新烧程序就能改参数、保存、查看记录。
-*      它是任务 11「不重新烧录完成所有任务」的技术底座。
+*   板上的 8 个按键没有直接接到 8 个 IO，而是先过一个 74HC148 优先编码器，
+*   变成 3 根线（PD8 / PB12 / PB14）送进单片机。所以"读按键"要先解码、再消抖。
+*   app_key.c 负责把 3 根线翻译成"哪个键、单击还是长按"；
+*   app_ui.c  负责把结果画到屏幕上，并且只重画变化的行（不闪屏）。
 *
-* 【为什么 g_param 定义在 app_param.c 而不是这里】
-*   因为除了 app.c，菜单（第 10 步）和控制台（本步）都要读写同一份参数，
-*   C 里跨文件共享只有一个办法：在 .c 里定义、在 .h 里 extern。
+* 【为什么按键扫描放在主循环、不放中断里】
+*   真按键按下时触点会抖动几毫秒 —— 必须"隔一小会儿再看一眼"，这是时间上的事，
+*   中断里不适合做（会拉长中断时间）。而且 74HC148 是共用的 3 根线，
+*   中断只适合"提示有变化"，判断和消抖仍然要放到 10ms 的任务里。
 ********************************************************************************/
 #include "app_config.h"
 #include "app.h"
@@ -18,8 +19,10 @@
 #include "app_buzzer.h"
 #include "app_tick.h"
 #include "app_display.h"
-#include "app_param.h"              /* 第 8 步新增：g_param + 存取 */
-#include "app_console.h"            /* 第 8 步新增：串口命令行   */
+#include "app_param.h"
+#include "app_console.h"
+#include "app_key.h"                /* 第 9 步新增：74HC148 解码 + 消抖 */
+#include "app_ui.h"                 /* 第 9 步新增：屏幕 UI 交互       */
 
 /* ================================ 呼吸灯 ================================ */
 static int32 breath_duty = 0;
@@ -59,16 +62,14 @@ uint8 app_counter_get(void) { return (uint8)(counter & 0x07); }
 static uint32 t_count = 0;
 static uint32 t_beep  = 0;
 static uint32 t_print = 0;
-static uint32 t_run   = 0;          /* 累计运行秒数（第 8 步新增）            */
+static uint32 t_run   = 0;
+static uint32 t_key   = 0;          /* 按键扫描周期（第 9 步新增）            */
 
 /* ============================== 上电初始化 ==============================
- * 【为什么顺序不能乱】
- *   1) LED / 蜂鸣器 / 呼吸灯：先把"被控制的对象"配好；
- *   2) app_param_load()：从 Flash 把参数读进内存（失败就用默认值，不会卡死）；
- *   3) app_param_apply()：把参数下发到上面三个模块。
- *      ★ 必须放在 1) 之后 —— 下发时改的是模块内部变量，
- *        模块还没初始化就下发，等于对着空气下命令。
- *   4) 节拍 / 屏幕 / 控制台：最后起。
+ * 【为什么按键初始化放在屏幕之后】
+ *   没有严格的先后依赖，但屏幕初始化最慢（约 250ms），
+ *   把按键配在前面会让"第一次按键"在屏幕还没亮的这段时间里没有反应；
+ *   顺序统一成"快的在前、慢的在最后"，出问题时也容易定位。
  * --------------------------------------------------------------------*/
 void app_init(void)
 {
@@ -76,16 +77,22 @@ void app_init(void)
     app_buzzer_init();
     app_breath_init();
 
-    app_param_load();                   /* ★ 第 8 步：从 Flash 读参数         */
-    app_param_apply();                  /* ★ 第 8 步：下发到各模块            */
-    app_breath_set_step((int32)g_param.breath_step);    /* 呼吸灯步长是 static，这里兜底 */
+    app_param_load();
+    app_param_apply();
+    app_breath_set_step((int32)g_param.breath_step);
 
     app_tick_init();
-    app_display_init();
-    app_console_init();                 /* ★ 第 8 步：串口控制台就绪          */
 
-    app_param_show();                   /* 上电把参数打一遍，方便对照          */
-    printf("[APP] step8: + flash param + console\r\n");
+    /* 顺序有讲究：app_ui_init() 里会 tft180_clear() 清屏，
+       所以它必须排在 app_display_init()（画静态页）之前，否则刚画好的页会被清掉。 */
+    app_key_init();                     /* ★ 第 9 步：PD8/PB12/PB14 配成上拉输入 */
+    app_ui_init();                      /* ★ 第 9 步：屏幕初始化（清屏 + 字体） */
+    app_display_init();                 /* 画静态页（Tick/Cnt/Duty/Time/Key）   */
+
+    app_console_init();
+    app_param_show();
+
+    printf("[APP] step9: + key(74hc148) + ui\r\n");
 }
 
 /* ================================ 主循环 ================================ */
@@ -94,6 +101,33 @@ void app_task(void)
     app_led_task();
     app_buzzer_task();
     app_breath_task();
+
+    /* --- 10ms：按键扫描（消抖、判长按都在里面）--- */
+    if(app_tick_reached(&t_key, 10))
+    {
+        app_key_task();
+        /* 屏幕 "Key :" 那一行跟着当前按住的键实时变（app_display 本来就留了这个接口） */
+        app_display_bind_key(app_key_name(app_key_get_pressed()));
+    }
+
+    /* --- 按键事件：串口打印 + KEY1 响一声（证明消抖/长按状态机真的在跑）--- */
+    {
+        app_key_enum       ev_key;
+        app_key_event_enum ev = app_key_get_event(&ev_key);
+
+        if(APP_KEY_EVENT_NONE != ev)
+        {
+            printf("[KEY] %s %s (code=%d)\r\n", app_key_name(ev_key),
+                   (APP_KEY_EVENT_PRESS  == ev) ? "PRESS"  :
+                   (APP_KEY_EVENT_LONG   == ev) ? "LONG"   : "REPEAT",
+                   app_key_get_raw_code());
+
+            if(APP_KEY_KEY1 == ev_key)                  /* SW14：按一下嗡一声 */
+            {
+                app_buzzer_start(g_param.buzzer_freq, 50);
+            }
+        }
+    }
 
     if(app_tick_reached(&t_count, 100))
     {
@@ -106,17 +140,11 @@ void app_task(void)
 
     if(app_tick_reached(&t_beep, 1000))
     {
-        /* 【为什么这里用 g_param.buzzer_freq，而不是第 5 步那个写死的宏】
-         * 因为这个值是从 Flash 里读出来的。你在串口控制台敲一条命令改掉它并 save，
-         * 下次开机蜂鸣器就是新频率 —— 全程没有重新烧程序（任务 11 的核心）。 */
         app_buzzer_start(g_param.buzzer_freq, 50);
     }
 
     if(app_tick_reached(&t_run, 1000))
     {
-        /* 运行秒数只改内存，不写 Flash！
-         * 【为什么】Flash 擦写寿命约 10 万次，每秒写一次几小时就废了。
-         * 只在用户显式执行 save 时落盘。 */
         g_param.run_seconds ++;
     }
 
@@ -126,6 +154,8 @@ void app_task(void)
                (unsigned int)(app_tick_get() / 1000), (unsigned int)app_counter_get());
     }
 
-    app_display_task();                 /* 屏幕 10Hz 刷新（内部节流）          */
-    app_console_task();                 /* ★ 第 8 步：解析串口命令（不阻塞）   */
+    /* --- 界面与命令行（都是"有活就干、没活立刻返回"）--- */
+    app_ui_task();                      /* ★ 第 9 步：刷新页面 / 处理临时消息 */
+    app_display_task();
+    app_console_task();
 }
