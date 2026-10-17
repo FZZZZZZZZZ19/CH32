@@ -11,4 +11,6 @@ void  app_breath_set_step(int32 step);      /* 改呼吸灯步进（菜单里用
 int32 app_breath_get_duty(void);            /* 读当前占空比（屏幕显示用） */
 uint8 app_counter_get(void);                /* 读二进制计数器的低 3 位 */
 
+void  app_buzzer_sweep_toggle(void);        /* 蜂鸣器扫频开/关（菜单 PWM 页用） */
+
 #endif

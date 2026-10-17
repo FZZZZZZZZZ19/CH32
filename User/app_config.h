@@ -36,6 +36,15 @@
 #define APP_BUZZER_DUTY_ON          (PWM_DUTY_MAX / 2)          /* 50% 方波      */
 #define APP_BUZZER_DUTY_OFF         (0)                         /* 0% = 不响     */
 
+/* 蜂鸣器扫频演示（菜单 PWM/Buzzer 页的 "Beep Sweep" 项）
+ * 为什么要有它：任务 5 要求"正常输出 pwm 波并控制无源蜂鸣器响"，
+ * 扫频能把"音调真的由 PWM 频率决定"直接听出来，答辩时比"滴一声"有说服力。
+ * 为什么放在应用层：app_buzzer 只管"以 f 响 t 毫秒"，扫多宽、扫多久是演示编排。 */
+#define APP_BUZZER_SWEEP_FROM       (500)                       /* 起始频率 Hz   */
+#define APP_BUZZER_SWEEP_TO         (4000)                      /* 结束频率 Hz   */
+#define APP_BUZZER_SWEEP_STEP       (100)                       /* 每档加 Hz     */
+#define APP_BUZZER_SWEEP_MS         (120)                       /* 每档响多久 ms */
+
 /* ======================= 呼吸灯（PWM 演示） =======================
  * PA11 既是 LED8 又是 TIM1_CH4 的 MAP0 引脚。
  * 与蜂鸣器同属 TIM1/MAP0，因此可以同时使用（共享频率，占空比各自独立）。

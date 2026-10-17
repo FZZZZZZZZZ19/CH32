@@ -62,7 +62,6 @@ uint8 app_counter_get(void) { return (uint8)(counter & 0x07); }
 
 /* =========================== 非阻塞定时的时间戳 =========================== */
 static uint32 t_count = 0;
-static uint32 t_beep  = 0;
 static uint32 t_print = 0;
 static uint32 t_run   = 0;
 static uint32 t_key   = 0;
@@ -98,6 +97,57 @@ void app_init(void)
     printf("[APP] step10: + 3-level menu + param log\r\n");
 }
 
+/* =========================== 蜂鸣器扫频演示 ===========================
+ * 【为什么要有它】任务 5 要求"主控板正常输出 pwm 波并控制无源蜂鸣器响"。
+ *   "滴一声"只能证明"会响"，扫频能把"音调真的由 PWM 频率决定"听出来，
+ *   答辩时这一条比任何描述都直接。
+ * 【为什么不写进 app_buzzer.c】app_buzzer 的职责只是"以 f 响 t 毫秒"，
+ *   扫多宽、每档多久、扫到哪停，是演示编排，属于应用层。
+ * 【为什么不能阻塞】主循环里只要 delay 一下，按键就不跟手、菜单就顿。
+ *   所以每次只 start() 一档(120ms)，靠 app_tick 的 1ms 节拍计时。
+ * --------------------------------------------------------------------*/
+static uint8  sweep_on   = 0;
+static uint32 sweep_freq = 0;
+static uint32 t_sweep    = 0;
+
+void app_buzzer_sweep_toggle(void)
+{
+    if(sweep_on)
+    {
+        sweep_on = 0;
+        app_buzzer_off();
+        printf("[BUZ] sweep off\r\n");
+        return;
+    }
+    sweep_on   = 1;
+    sweep_freq = APP_BUZZER_SWEEP_FROM;
+    t_sweep    = app_tick_get();
+    printf("[BUZ] sweep on %u -> %u Hz, step %u Hz per %u ms\r\n",
+           (unsigned int)APP_BUZZER_SWEEP_FROM, (unsigned int)APP_BUZZER_SWEEP_TO,
+           (unsigned int)APP_BUZZER_SWEEP_STEP, (unsigned int)APP_BUZZER_SWEEP_MS);
+}
+
+static void app_buzzer_demo_task(void)
+{
+    if(0 == sweep_on)
+    {
+        return;
+    }
+    if(0 == app_tick_reached(&t_sweep, APP_BUZZER_SWEEP_MS))
+    {
+        return;
+    }
+    /* 每档响的时间比间隔长 20ms，声音才不会一顿一顿 */
+    app_buzzer_start(sweep_freq, APP_BUZZER_SWEEP_MS + 20);
+
+    sweep_freq += APP_BUZZER_SWEEP_STEP;
+    if(sweep_freq > APP_BUZZER_SWEEP_TO)
+    {
+        sweep_on = 0;
+        printf("[BUZ] sweep done\r\n");
+    }
+}
+
 /* ================================ 主循环 ================================
  * 【为什么 app_menu_task() 放在最后】
  *   它要消费按键事件。事件是"取一次就清掉"的，所以必须让前面所有可能
@@ -123,10 +173,7 @@ void app_task(void)
         }
     }
 
-    if(app_tick_reached(&t_beep, 1000))
-    {
-        app_buzzer_start(g_param.buzzer_freq, 50);
-    }
+    app_buzzer_demo_task();             /* ★ 蜂鸣器不自动响：只在菜单点 Beep Now/1s/Sweep 时才响 */
 
     if(app_tick_reached(&t_run, 1000))
     {

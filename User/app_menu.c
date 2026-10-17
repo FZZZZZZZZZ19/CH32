@@ -8,6 +8,7 @@
 #include "app_tick.h"
 #include "app_led.h"
 #include "app_buzzer.h"
+#include "app.h"                    /* 第 8 次提交：蜂鸣器扫频 app_buzzer_sweep_toggle() */
 
 /*-------------------------------------------------------------------------------------------------------------------
  * 菜单项类型
@@ -46,7 +47,9 @@ typedef struct
  * 各动作
  *-----------------------------------------------------------------------------------------------------------------*/
 static void act_led_chase(void)     { app_led_chase_toggle();         app_ui_msg("chase"); }
-static void act_beep(void)          { app_buzzer_start(g_param.buzzer_freq, 100); app_ui_msg("beep"); }
+static void act_beep(void)          { app_buzzer_start(g_param.buzzer_freq, 100);  app_ui_msg("beep"); }
+static void act_beep_1s(void)       { app_buzzer_start(g_param.buzzer_freq, 1000); app_ui_msg("beep 1s"); }
+static void act_beep_sweep(void)    { app_buzzer_sweep_toggle();                   app_ui_msg("sweep"); }
 static void act_save_all(void)      { app_param_save(); app_log_append();  app_ui_msg("saved+logged"); }
 static void act_load(void)          { app_param_load(); app_param_apply(); app_ui_msg("loaded"); }
 static void act_default(void)       { app_param_reset(); app_param_save(); app_log_append(); app_param_apply(); app_ui_msg("default"); }
@@ -96,6 +99,8 @@ static const menu_item_struct item_pwm[] =
 {
     { "Beep Freq",  MENU_ITEM_VALUE,  0, &g_param.buzzer_freq, 200, 8000, 100, "Hz", NULL },
     { "Beep Now",   MENU_ITEM_ACTION, 0, NULL, 0, 0, 0, "", act_beep },
+    { "Beep 1s",    MENU_ITEM_ACTION, 0, NULL, 0, 0, 0, "", act_beep_1s },
+    { "Beep Sweep", MENU_ITEM_ACTION, 0, NULL, 0, 0, 0, "", act_beep_sweep },
     { "< Back",     MENU_ITEM_BACK,   0, NULL, 0, 0, 0, "", NULL },
 };
 
