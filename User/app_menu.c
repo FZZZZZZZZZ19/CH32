@@ -210,7 +210,7 @@ static void menu_draw_list(void)
                 break;
 
             case MENU_ITEM_SUBMENU:
-                sprintf(line, "%s >", it->name);
+                sprintf(line, "%s", it->name);      /* 只留项名: 行尾的 ">" 不再画 (用户要求 MAIN 页干净) */
                 break;
 
             default:
